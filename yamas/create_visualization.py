@@ -4,8 +4,11 @@ import csv
 import os.path
 import pickle
 import datetime
+
+from setuptools.compat.py311 import shutil_rmtree
 from tqdm import tqdm
 from metaphlan.utils.merge_metaphlan_tables import merge
+from .pathways import pathways
 from .utilities import run_cmd, ReadsData, check_conda_qiime2
 import json
 import shutil
@@ -28,6 +31,7 @@ def check_input(acc_list: str):
 import os
 
 
+# noinspection PyTypeChecker
 def create_dir(dir_name, specific_location):
     dir_path = os.path.join(os.path.abspath(specific_location), dir_name)
 
@@ -79,7 +83,6 @@ def sra_to_fastq(dir_path: str, as_single):
         else:
             return ReadsData(dir_path, fwd=True, rev=True)
 
-
     return ReadsData(dir_path, fwd=True, rev=False)
 
 
@@ -111,8 +114,7 @@ def create_manifest(reads_data: ReadsData):
         for n, ff, fr in zip(*(names, files_fwd, files_rev)):
             tsv_writer.writerow([n, ff, fr])
     # remove sra directory
-    shutil.rmtree(ReadsData.dir_path + "/sra")
-
+    shutil.rmtree(reads_data.dir_path + "/sra")
 
 
 def qiime_import(reads_data: ReadsData):
@@ -145,15 +147,18 @@ def qiime_demux(reads_data: ReadsData, qza_file_path: str, dataset_id):
     run_cmd(command)
     return vis_file_path
 
+
 def get_files_in_directory(directory, extension=""):
     return [os.path.join(directory, f) for f in os.listdir(directory) if f.endswith(extension)]
 
 
-def metaphlan_extraction(reads_data, dataset_id):
+def metaphlan_extraction(reads_data, dataset_id, pathway_dir, verbose_print):
     paired = reads_data.rev and reads_data.fwd
     fastq_path = os.path.join(reads_data.dir_path, "fastq")
     export_path = os.path.join(reads_data.dir_path, "export")
     run_cmd([f"mkdir {export_path}"])
+    pathway_path = os.path.join(reads_data.dir_path, "pathways")
+    run_cmd([f"mkdir {pathway_path}"])
     final_output_path = os.path.join(export_path, f'{dataset_id}_final.txt')
     run_cmd([f"touch {final_output_path}"])
     fastq_files = [a for a in os.listdir(fastq_path) if a.split(".")[-1] == "fastq"]
@@ -167,32 +172,51 @@ def metaphlan_extraction(reads_data, dataset_id):
             output = os.path.join(fastq_path, f"{fastq_name}.bowtie2.bz2")
             command = [f"metaphlan {fastq_1},{fastq_2} --input_type fastq --bowtie2out {output} --nproc 24"]
             run_cmd(command)
-
-
             final_output_file = os.path.join(os.path.join(reads_data.dir_path, 'qza'), f'{fastq_name}_profile.txt')
             command = [f"metaphlan {output} --input_type bowtie2out --nproc 24 > {final_output_file}"]
             run_cmd(command)
-            # after converting the fastq to bowtie and bowtie to profile we can delete these files
-            run_cmd([f"rm {fastq_1} {fastq_2} {output}"])
+
+            if pathway_dir:
+                # Check if the pathways program was run through this sample already.
+                bam_file = os.path.join(reads_data.dir_path, "pathways", fastq_name, "aligned_reads.bam")
+                if os.path.exists(bam_file):
+                    command = [f"rm {bam_file}"]
+                    run_cmd(command)
+                pathways(final_output_file, fastq_name, reads_data, pathway_dir, verbose_print)
+                command = [f"rm {bam_file}"]
+                run_cmd(command)  # Remove the BAM file to prevent rpy2 shutdown.
+
+            # After converting the fastq to bowtie and bowtie to profile, delete these files.
+            run_cmd([f"rm {output} {fastq_1} {fastq_2}"])
     else:
         print("not paired")
         for fastq in tqdm(fastq_files):
+            fastq_name = f"{fastq}"
             output = os.path.join(os.path.join(reads_data.dir_path, 'qza'), f'{fastq}_profile.txt')
             fastq = os.path.join(fastq_path, fastq)
             command = [f"metaphlan {fastq} --input_type fastq --nproc 24 > {output}"]
             run_cmd(command)
-            # after converting the fastq to profile we can delete the fastq files
+            if pathway_dir:
+                pathways(output, fastq_name, reads_data, pathway_dir, verbose_print)
+
+            # After converting the fastq to profile, delete the fastq files.
             run_cmd([f"rm {fastq}"])
 
-    qza_dir= os.path.join(reads_data.dir_path, 'qza')
-    # Gather all profile files from the directory
+    qza_dir = os.path.join(reads_data.dir_path, 'qza')
+    # Gather all profile files from the directory.
     profile_files = get_files_in_directory(qza_dir, extension="_profile.txt")
 
-    # Merge the profile files
-    merge(profile_files, open(final_output_path, 'w'), gtdb=False)
-    # delete the fastq dir, we convert all the fastq to profile
-    shutil.rmtree(fastq_path)
+    # Merge the profile files.
+    merge(profile_files, open(final_output_path, 'w'))
 
+    # Delete the fastq directory since all fastq files have been converted to profiles.
+    shutil.rmtree(fastq_path)
+    # Delete the pathways junk data after the pathways program has been run.
+    if pathway_dir:
+        shutil.rmtree(os.path.join(reads_data.dir_path, "pathways_data"))
+
+
+# noinspection PyTypeChecker
 def metaphlan_txt_csv(reads_data, dataset_id):
     export_path = os.path.join(reads_data.dir_path, "export")
     input_file = os.path.join(export_path, f"{dataset_id}_final.txt")
@@ -221,7 +245,8 @@ def metaphlan_txt_csv(reads_data, dataset_id):
 
 
 # This function is the main function to download the project. It Hnadles all the download flow for 16S and Shotgun.
-def visualization(acc_list, dataset_id, data_type, verbose_print, specific_location,as_single):
+# noinspection PyTypeChecker
+def visualization(acc_list, dataset_id, data_type, verbose_print, specific_location, as_single, pathway_dir):
     verbose_print("\n")
     verbose_print(datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S'))
     data_json = {}
@@ -278,8 +303,6 @@ def visualization(acc_list, dataset_id, data_type, verbose_print, specific_locat
         create_manifest(reads_data)
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Finish creating manifest (4/6)")
 
-        
-
         verbose_print("\n")
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Start 'qiime import' (5/6)")
         qza_file_path = qiime_import(reads_data)
@@ -309,7 +332,7 @@ def visualization(acc_list, dataset_id, data_type, verbose_print, specific_locat
     else:
         verbose_print("\n")
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Start metaphlan extraction (4/6)")
-        metaphlan_extraction(reads_data, dataset_id)
+        metaphlan_extraction(reads_data, dataset_id, pathway_dir, verbose_print)
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Finish metaphlan extraction (4/6)")
 
         verbose_print("\n")
@@ -323,7 +346,7 @@ def visualization(acc_list, dataset_id, data_type, verbose_print, specific_locat
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Finished downloading. 6/6 \n")
 
 
-def visualization_continue_fastq(dataset_id, continue_path, data_type, verbose_print, specific_location):
+def visualization_continue_fastq(dataset_id, continue_path, data_type, verbose_print, specific_location, pathways_dir):
     verbose_print("\n")
     verbose_print('Checking environment...', end=" ")
     check_conda_qiime2()
@@ -345,7 +368,7 @@ def visualization_continue_fastq(dataset_id, continue_path, data_type, verbose_p
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Start creating manifest (3/5)")
         create_manifest(reads_data)
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Finish creating manifest (3/5)")
-        shutil.rmtree(continue_path+'/sra')
+        shutil.rmtree(continue_path + '/sra')
         verbose_print("\n")
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Start 'qiime import' (4/5)")
         qza_file_path = qiime_import(reads_data)
@@ -375,7 +398,7 @@ def visualization_continue_fastq(dataset_id, continue_path, data_type, verbose_p
     else:
         verbose_print("\n")
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Start metaphlan extraction (3/5)")
-        metaphlan_extraction(reads_data, dataset_id)
+        metaphlan_extraction(reads_data, dataset_id, pathways_dir)
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Finish metaphlan extraction (3/5)")
 
         verbose_print("\n")
@@ -389,7 +412,7 @@ def visualization_continue_fastq(dataset_id, continue_path, data_type, verbose_p
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Finished downloading. 5/5 \n")
 
 
-def visualization_continue(dataset_id, continue_path, data_type, verbose_print, specific_location):
+def visualization_continue(dataset_id, continue_path, data_type, verbose_print, specific_location, pathways_dir):
     verbose_print("\n")
     verbose_print('Checking environment...', end=" ")
     check_conda_qiime2()
@@ -417,7 +440,7 @@ def visualization_continue(dataset_id, continue_path, data_type, verbose_print, 
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Start creating manifest (1/3)")
         create_manifest(reads_data)
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Finish creating manifest (1/3)")
-        shutil.rmtree(continue_path+'/sra')		
+        shutil.rmtree(continue_path + '/sra')
         verbose_print("\n")
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Start 'qiime import' (2/3)")
         qza_file_path = qiime_import(reads_data)
@@ -447,15 +470,15 @@ def visualization_continue(dataset_id, continue_path, data_type, verbose_print, 
     else:
         verbose_print("\n")
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Start metaphlan extraction (1/2)")
-        metaphlan_extraction(reads_data, dataset_id)
+        metaphlan_extraction(reads_data, dataset_id, pathways_dir, verbose_print)
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Finish metaphlan extraction (1/2)")
 
         verbose_print("\n")
         verbose_print(
-            f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Start converting resualts to CSV (2/2)")
+            f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Start converting results to CSV (2/2)")
         metaphlan_txt_csv(reads_data, dataset_id)
         verbose_print(
-            f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- finish converting resualts to CSV (2/2)")
+            f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- finish converting results to CSV (2/2)")
 
         verbose_print("\n")
         verbose_print(f"{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')} -- Finished downloading.\n")
