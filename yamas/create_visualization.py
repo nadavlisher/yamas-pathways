@@ -4,8 +4,6 @@ import csv
 import os.path
 import pickle
 import datetime
-
-from setuptools.compat.py311 import shutil_rmtree
 from tqdm import tqdm
 from metaphlan.utils.merge_metaphlan_tables import merge
 from .pathways import pathways
