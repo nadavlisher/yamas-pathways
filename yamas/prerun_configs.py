@@ -6,6 +6,20 @@ command_based_on_os = {'Ubuntu': ['wget --output-document sratoolkit.tar.gz http
                        'CentOS': ['wget --output-document sratoolkit.tar.gz https://ftp-trace.ncbi.nlm.nih.gov/sra/sdk/current/sratoolkit.current-centos_linux64.tar.gz'],
                        }
 
+# Define required packages
+pip_packages = ['multiprocessing', 'rpy2', 'bs4', 'wget', 'ete3']
+conda_packages = ['bioconda::bioconductor-rsubread', 'bioconda::bioconductor-genomicranges', 'bioconda::bioconductor-genomicalignments', 'bioconda::bioconductor-rtracklayer', 'r::r-jsonlite', 'bioconda::bioconductor-clusterprofiler=3.16']  # Modify as needed
+
+
+def install_pip_packages():
+    for package in pip_packages:
+        run_cmd(['pip', 'install', package])
+
+
+def install_conda_packages():
+    for package in conda_packages:
+        run_cmd(['conda', 'install', '-y', package])
+
 
 def set_environment(operating_system_type):
 
@@ -26,6 +40,12 @@ def set_environment(operating_system_type):
     print(f"######   export PATH   ")
     # run_cmd([f'export PATH=$PATH:$PWD/{version}/bin'])
     os.environ['PATH'] = f"{os.environ['PATH']}:{os.getcwd()}/{version}/bin"
+
+    print("######   Installing pip packages   ")
+    install_pip_packages()
+
+    print("######   Installing conda packages   ")
+    install_conda_packages()
 
     print("######   Checking if we are ready to go...   ")
     run_cmd(['which fastq-dump > check_fastq-dump.txt'])
