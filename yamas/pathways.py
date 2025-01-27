@@ -102,11 +102,12 @@ def process_species_subset(species_list, annotation_folder_path, dictionary_path
     reference_data(subset_species_list, annotation_folder_path, dictionary_path)
 
 
-def create_spreadsheet(bacteria_list, main_folder_path):
+def create_spreadsheet(bacteria_list, main_folder_path, save_path):
     """
     Creates a csv file with species as rows and genes as columns, with the gene counts in between.
     :param bacteria_list: bacteria list from the pathways code
     :param main_folder_path: the path where the data is stored
+    :param save_path: the path where the spreadsheet will be saved
     :return: creates a spreadsheet containing the gene counts of the data
     """
     species_data = {}  # Dictionary to store species data
@@ -137,10 +138,8 @@ def create_spreadsheet(bacteria_list, main_folder_path):
     # Fill NaN values with 0
     main_spreadsheet = main_spreadsheet.fillna(0)
 
-    # Save the main spreadsheet to the main folder path
-    spreadsheet_filename = os.path.join(main_folder_path, "gene_counts.csv")
-    main_spreadsheet.to_csv(spreadsheet_filename)
-    print(f"Spreadsheet saved to: {spreadsheet_filename}")
+    # Save the main spreadsheet to the specified save path
+    main_spreadsheet.to_csv(save_path)
 
 
 def pathways(metaphlan_output, sample_name, reads_data, main_dir, verbose_print):
@@ -331,8 +330,8 @@ def pathways(metaphlan_output, sample_name, reads_data, main_dir, verbose_print)
 
     # Create a spreadsheet containing the gene counts of the data and the pathways data
     gene_counts_csv = os.path.join(data_dir, "gene_counts.csv")
-    create_spreadsheet(species_list, pathway_dir)
-    translate_k0_to_gene(gene_counts_csv, gene_counts_csv)  #takes too much time currently.
+    create_spreadsheet(species_list, pathway_dir, gene_counts_csv)
+    # translate_k0_to_gene(gene_counts_csv, gene_counts_csv)  #takes too much time currently.
     df = pd.read_csv(gene_counts_csv)
     df["Unnamed: 0"] = df["Unnamed: 0"].apply(get_full_hierarchy)
     df.to_csv(gene_counts_csv)
