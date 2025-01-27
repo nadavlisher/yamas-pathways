@@ -8,7 +8,7 @@ command_based_on_os = {'Ubuntu': ['wget --output-document sratoolkit.tar.gz http
 
 # Define required packages
 pip_packages = ['rpy2', 'bs4', 'wget', 'ete3']
-conda_packages = ['bioconda::bioconductor-rsubread', 'bioconda::bioconductor-genomicranges', 'bioconda::bioconductor-genomicalignments', 'bioconda::bioconductor-rtracklayer', 'r::r-jsonlite', 'bioconda::bioconductor-clusterprofiler=3.16']  # Modify as needed
+conda_packages = ['bioconda::bioconductor-rsubread', 'bioconda::bioconductor-genomicranges', 'bioconda::bioconductor-genomicalignments', 'bioconda::bioconductor-rtracklayer', 'r::r-jsonlite', 'bioconda::bioconductor-clusterprofiler']  # Modify as needed
 
 
 def install_pip_packages():
