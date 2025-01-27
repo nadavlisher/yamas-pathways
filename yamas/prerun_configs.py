@@ -1,5 +1,5 @@
 import os
-
+import subprocess
 from .utilities import run_cmd
 
 command_based_on_os = {'Ubuntu': ['wget --output-document sratoolkit.tar.gz https://ftp-trace.ncbi.nlm.nih.gov/sra/sdk/current/sratoolkit.current-ubuntu64.tar.gz'],
@@ -7,18 +7,22 @@ command_based_on_os = {'Ubuntu': ['wget --output-document sratoolkit.tar.gz http
                        }
 
 # Define required packages
-pip_packages = ['rpy2', 'bs4', 'wget', 'ete3']
 conda_packages = ['bioconda::bioconductor-rsubread', 'bioconda::bioconductor-genomicranges', 'bioconda::bioconductor-genomicalignments', 'bioconda::bioconductor-rtracklayer', 'r::r-jsonlite', 'bioconda::bioconductor-clusterprofiler']  # Modify as needed
-
-
-def install_pip_packages():
-    for package in pip_packages:
-        run_cmd(['pip', 'install', package])
-
 
 def install_conda_packages():
     for package in conda_packages:
         run_cmd(['conda', 'install', '-y', package])
+
+
+def install_r_package(package_name, min_version):
+    """Install or update an R package to meet the minimum version requirement."""
+    r_script = f"""
+    if (!requireNamespace("{package_name}", quietly = TRUE) || packageVersion("{package_name}") < "{min_version}") {{
+        install.packages("{package_name}", repos = "https://cloud.r-project.org")
+    }}
+    """
+    subprocess.run(['R', '--vanilla', '-e', r_script], check=True)
+
 
 
 def set_environment(operating_system_type):
@@ -37,11 +41,11 @@ def set_environment(operating_system_type):
         last_line = file.readlines()[-1]
         version = last_line.split("/")[0]
 
-    print("######   Installing pip packages   ")
-    install_pip_packages()
-
     print("######   Installing conda packages   ")
     install_conda_packages()
+    
+    print("######   Installing R package: igraph   ######")
+    install_r_package('igraph', '2.1.4')
 
     print(f"######   export PATH   ")
     # run_cmd([f'export PATH=$PATH:$PWD/{version}/bin'])
@@ -55,3 +59,5 @@ def set_environment(operating_system_type):
             print(f"\n######   Please run the following command in your terminal:   ######\n######   export PATH=$PATH:$PWD/{version}/bin   ######\n######   YAMAS is ready to run!   ###### ")
         else:
             print("######   YAMAS is NOT ready! Try again or you can set the environment by yourself.\n  Follow the instructions (from step 2) that can be found in git: https://github.com/YarinBekor/YaMAS.   ######\n    ")
+            
+
