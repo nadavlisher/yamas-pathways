@@ -9141,4 +9141,3 @@ Candidatus_Lokiarchaeum_sp._GC14_75
 Candidatus_Prometheoarchaeum_syntrophicum
 Archaeon_GW_AR10
 Archaeon_GW_AR20
-
